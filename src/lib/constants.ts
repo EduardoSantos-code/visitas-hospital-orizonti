@@ -27,7 +27,7 @@ export function getFamilyWhatsAppNumber(): string {
 }
 
 export function formatWhatsAppMessage(nome: string, dataFormatted: string, horario: string): string {
-  const text = `Olá! Acabei de agendar uma visita para ver seu pai no Hospital Orizonti no dia ${dataFormatted} às ${horario}. (Visitante: ${nome})`;
+  const text = `Olá! Acabei de agendar uma visita para ver o Noel no Hospital Orizonti no dia ${dataFormatted} às ${horario}. (Visitante: ${nome})`;
   return text;
 }
 

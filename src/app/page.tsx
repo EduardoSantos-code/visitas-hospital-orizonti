@@ -188,7 +188,7 @@ export default function Home() {
               <span>Espaço de Carinho e Apoio</span>
             </div>
             <h2 className="text-xl font-extrabold tracking-tight leading-snug">
-              Visitas ao Pai no {HOSPITAL_NAME}
+              Visitas ao Noel no {HOSPITAL_NAME}
             </h2>
             <p className="text-xs text-teal-100/90 leading-relaxed font-normal">
               Agende seu horário com facilidade. Para garantir o conforto e descanso, permitimos{" "}
