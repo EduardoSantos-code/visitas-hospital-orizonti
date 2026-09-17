@@ -1,26 +1,47 @@
 "use client";
 
-import React, { useState } from "react";
-import { User, Phone, CalendarCheck, Clock, CheckCircle, AlertCircle, Loader2, ArrowRight } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { User, Phone, CalendarCheck, AlertCircle, Loader2, ArrowRight, UserCheck, Sun, Moon } from "lucide-react";
+import { Visita, TipoPresenca } from "@/lib/types";
 
 interface BookingFormProps {
   selectedDate: string; // YYYY-MM-DD
-  selectedSlot: string | null;
-  onSubmit: (formData: { nome: string; telefone: string }) => Promise<void>;
+  visitasDoDia: Visita[];
+  onSubmit: (formData: { nome: string; telefone: string; tipo: TipoPresenca }) => Promise<void>;
   isSubmitting: boolean;
   isDayFull: boolean;
 }
 
 export function BookingForm({
   selectedDate,
-  selectedSlot,
+  visitasDoDia,
   onSubmit,
   isSubmitting,
   isDayFull,
 }: BookingFormProps) {
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [tipo, setTipo] = useState<TipoPresenca>("Visita");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const countVisitas = visitasDoDia.filter((v) => v.tipo === "Visita").length;
+  const isVisitasFull = countVisitas >= 4;
+  const isAcompDiaFull = visitasDoDia.some((v) => v.tipo === "Acompanhante - Dia");
+  const isAcompNoiteFull = visitasDoDia.some((v) => v.tipo === "Acompanhante - Noite");
+
+  // Ajustar opção selecionada se a atual estiver lotada
+  useEffect(() => {
+    if (tipo === "Visita" && isVisitasFull) {
+      if (!isAcompDiaFull) setTipo("Acompanhante - Dia");
+      else if (!isAcompNoiteFull) setTipo("Acompanhante - Noite");
+    } else if (tipo === "Acompanhante - Dia" && isAcompDiaFull) {
+      if (!isVisitasFull) setTipo("Visita");
+      else if (!isAcompNoiteFull) setTipo("Acompanhante - Noite");
+    } else if (tipo === "Acompanhante - Noite" && isAcompNoiteFull) {
+      if (!isVisitasFull) setTipo("Visita");
+      else if (!isAcompDiaFull) setTipo("Acompanhante - Dia");
+    }
+  }, [selectedDate, isVisitasFull, isAcompDiaFull, isAcompNoiteFull, tipo]);
 
   // Formatação em tempo real para máscara de telefone (BR: (XX) 9XXXX-XXXX)
   const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,8 +64,16 @@ export function BookingForm({
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!selectedSlot) {
-      setErrorMessage("Por favor, selecione um horário livre acima antes de confirmar.");
+    if (tipo === "Visita" && isVisitasFull) {
+      setErrorMessage("As 4 vagas de visita para este dia já estão ocupadas.");
+      return;
+    }
+    if (tipo === "Acompanhante - Dia" && isAcompDiaFull) {
+      setErrorMessage("A vaga de acompanhante do dia (08h às 20h) já está ocupada.");
+      return;
+    }
+    if (tipo === "Acompanhante - Noite" && isAcompNoiteFull) {
+      setErrorMessage("A vaga de acompanhante da noite (20h às 08h) já está ocupada.");
       return;
     }
 
@@ -60,9 +89,9 @@ export function BookingForm({
     }
 
     try {
-      await onSubmit({ nome: nome.trim(), telefone });
+      await onSubmit({ nome: nome.trim(), telefone, tipo });
     } catch (err: any) {
-      setErrorMessage(err.message || "Não foi possível agendar a visita.");
+      setErrorMessage(err.message || "Não foi possível agendar.");
     }
   };
 
@@ -73,7 +102,7 @@ export function BookingForm({
   };
 
   if (isDayFull) {
-    return null; // O botão fica oculto ou desabilitado se o dia estiver esgotado
+    return null;
   }
 
   return (
@@ -82,20 +111,14 @@ export function BookingForm({
         <div>
           <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
             <CalendarCheck className="w-4 h-4 text-teal-600" />
-            Dados do Visitante
+            Registrar Presença
           </h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">Preencha para registrar sua visita no sistema</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">Preencha seus dados para agendar na data escolhida</p>
         </div>
 
-        {selectedSlot ? (
-          <span className="px-3 py-1 bg-teal-50 border border-teal-200 text-teal-800 rounded-full text-xs font-bold flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5 text-teal-600" /> {formatDataBr(selectedDate)} às {selectedSlot}
-          </span>
-        ) : (
-          <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-[11px] font-semibold">
-            Selecione o horário acima
-          </span>
-        )}
+        <span className="px-3 py-1 bg-teal-50 border border-teal-200 text-teal-800 rounded-full text-xs font-bold flex items-center gap-1">
+          {formatDataBr(selectedDate)}
+        </span>
       </div>
 
       {errorMessage && (
@@ -105,10 +128,78 @@ export function BookingForm({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-3.5">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Escolha da Modalidade / Tipo de Presença */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-2">
+            Selecione a modalidade da sua presença:
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {/* Opção 1: Visita */}
+            <button
+              type="button"
+              disabled={isVisitasFull}
+              onClick={() => setTipo("Visita")}
+              className={`p-3 rounded-2xl border flex flex-col items-center justify-center text-center gap-1 transition-all ${
+                isVisitasFull
+                  ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+                  : tipo === "Visita"
+                  ? "bg-teal-600 text-white border-teal-700 shadow-md shadow-teal-600/20 ring-2 ring-teal-400"
+                  : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+              }`}
+            >
+              <UserCheck className={`w-5 h-5 ${isVisitasFull ? "text-slate-400" : tipo === "Visita" ? "text-white" : "text-teal-600"}`} />
+              <span className="text-xs font-bold">Visita</span>
+              <span className={`text-[10px] ${isVisitasFull ? "text-slate-400" : tipo === "Visita" ? "text-teal-100" : "text-slate-500"}`}>
+                {isVisitasFull ? "Esgotado (4/4)" : `11h-20h (${countVisitas}/4)`}
+              </span>
+            </button>
+
+            {/* Opção 2: Acompanhante Dia */}
+            <button
+              type="button"
+              disabled={isAcompDiaFull}
+              onClick={() => setTipo("Acompanhante - Dia")}
+              className={`p-3 rounded-2xl border flex flex-col items-center justify-center text-center gap-1 transition-all ${
+                isAcompDiaFull
+                  ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+                  : tipo === "Acompanhante - Dia"
+                  ? "bg-amber-600 text-white border-amber-700 shadow-md shadow-amber-600/20 ring-2 ring-amber-400"
+                  : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+              }`}
+            >
+              <Sun className={`w-5 h-5 ${isAcompDiaFull ? "text-slate-400" : tipo === "Acompanhante - Dia" ? "text-white" : "text-amber-600"}`} />
+              <span className="text-xs font-bold">Acomp. Dia</span>
+              <span className={`text-[10px] ${isAcompDiaFull ? "text-slate-400" : tipo === "Acompanhante - Dia" ? "text-amber-100" : "text-slate-500"}`}>
+                {isAcompDiaFull ? "Preenchido" : "08h às 20h"}
+              </span>
+            </button>
+
+            {/* Opção 3: Acompanhante Noite */}
+            <button
+              type="button"
+              disabled={isAcompNoiteFull}
+              onClick={() => setTipo("Acompanhante - Noite")}
+              className={`p-3 rounded-2xl border flex flex-col items-center justify-center text-center gap-1 transition-all ${
+                isAcompNoiteFull
+                  ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+                  : tipo === "Acompanhante - Noite"
+                  ? "bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-600/20 ring-2 ring-indigo-400"
+                  : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+              }`}
+            >
+              <Moon className={`w-5 h-5 ${isAcompNoiteFull ? "text-slate-400" : tipo === "Acompanhante - Noite" ? "text-white" : "text-indigo-600"}`} />
+              <span className="text-xs font-bold">Acomp. Noite</span>
+              <span className={`text-[10px] ${isAcompNoiteFull ? "text-slate-400" : tipo === "Acompanhante - Noite" ? "text-indigo-100" : "text-slate-500"}`}>
+                {isAcompNoiteFull ? "Preenchido" : "20h às 08h"}
+              </span>
+            </button>
+          </div>
+        </div>
+
         {/* Campo Nome */}
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Nome Completo do Visitante</label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome Completo</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
               <User className="w-4 h-4" />
@@ -148,11 +239,9 @@ export function BookingForm({
         {/* Botão de Confirmação */}
         <button
           type="submit"
-          disabled={isSubmitting || !selectedSlot}
+          disabled={isSubmitting}
           className={`w-full py-3.5 px-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md ${
-            !selectedSlot
-              ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-              : isSubmitting
+            isSubmitting
               ? "bg-teal-700 text-white cursor-wait"
               : "bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white shadow-teal-600/20 active:scale-[0.99]"
           }`}
@@ -160,11 +249,11 @@ export function BookingForm({
           {isSubmitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Registrando Agendamento...</span>
+              <span>Confirmando Agendamento...</span>
             </>
           ) : (
             <>
-              <span>Confirmar Visita</span>
+              <span>Confirmar Agendamento</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}

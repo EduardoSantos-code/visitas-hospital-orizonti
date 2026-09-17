@@ -31,19 +31,21 @@ export function HospitalInfoModal({ onClose }: HospitalInfoModalProps) {
 
         <div className="space-y-4 text-xs text-slate-600">
           <div className="p-3.5 bg-teal-50/80 rounded-2xl border border-teal-100 flex items-start gap-3">
-            <Clock className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+            <Users className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-teal-950">Horário Permitido</p>
-              <p className="mt-0.5 text-teal-800">Das 11:00 às 20:00 (divididos em blocos de 1 hora).</p>
+              <p className="font-semibold text-teal-950">Visitas Simultâneas</p>
+              <p className="mt-0.5 text-teal-800">
+                Permitidas até <strong>4 visitas por dia das 11h às 20h</strong> (podendo ser simultâneas no quarto).
+              </p>
             </div>
           </div>
 
           <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-100 flex items-start gap-3">
-            <Users className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-amber-950">Limite Rigoroso por Dia</p>
+              <p className="font-semibold text-amber-950">Acompanhantes por Turno</p>
               <p className="mt-0.5 text-amber-800">
-                No máximo <strong>4 visitas por dia</strong>. Apenas 1 pessoa por horário de 1h para garantir o descanso.
+                Até <strong>2 acompanhantes por dia</strong>: 1 para o turno do <strong>Dia (08h às 20h)</strong> e 1 para o turno da <strong>Noite (20h às 08h)</strong>.
               </p>
             </div>
           </div>

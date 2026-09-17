@@ -8,28 +8,53 @@ CREATE TABLE IF NOT EXISTS visitas (
   nome VARCHAR(255) NOT NULL,
   telefone VARCHAR(50) NOT NULL,
   data DATE NOT NULL,
-  horario VARCHAR(10) NOT NULL, -- Formato: '11:00', '12:00', etc.
-  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-
-  -- Constraint de unicidade: Garante no máximo 1 visita por horário em cada data
-  CONSTRAINT uq_visita_data_horario UNIQUE (data, horario)
+  horario VARCHAR(10), -- Opcional / Histórico
+  tipo VARCHAR(50) DEFAULT 'Visita' NOT NULL, -- 'Visita', 'Acompanhante - Dia', ou 'Acompanhante - Noite'
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+-- Script de migração para tabelas existentes no Supabase:
+-- ALTER TABLE visitas ADD COLUMN IF NOT EXISTS tipo VARCHAR(50) DEFAULT 'Visita' NOT NULL;
+-- ALTER TABLE visitas ALTER COLUMN horario DROP NOT NULL;
+-- ALTER TABLE visitas DROP CONSTRAINT IF EXISTS uq_visita_data_horario;
 
 -- 2. Índice para consultas otimizadas por data
 CREATE INDEX IF NOT EXISTS idx_visitas_data ON visitas(data);
 
--- 3. Função de verificação para limitar estritamente a 4 visitas por dia
+-- 3. Função de verificação com limites independentes por modalidade
 CREATE OR REPLACE FUNCTION check_limite_visitas_dia()
 RETURNS TRIGGER AS $$
 DECLARE
   total_visitas INTEGER;
+  total_acomp_dia INTEGER;
+  total_acomp_noite INTEGER;
 BEGIN
-  SELECT COUNT(*) INTO total_visitas
-  FROM visitas
-  WHERE data = NEW.data;
+  IF NEW.tipo = 'Visita' THEN
+    SELECT COUNT(*) INTO total_visitas
+    FROM visitas
+    WHERE data = NEW.data AND tipo = 'Visita';
 
-  IF total_visitas >= 4 THEN
-    RAISE EXCEPTION 'LIMITE_EXCEDIDO: O dia % já possui o número máximo de 4 visitas confirmadas.', NEW.data;
+    IF total_visitas >= 4 THEN
+      RAISE EXCEPTION 'LIMITE_VISITAS_EXCEDIDO: O dia % já possui o limite máximo de 4 visitas simultâneas.', NEW.data;
+    END IF;
+
+  ELSIF NEW.tipo = 'Acompanhante - Dia' THEN
+    SELECT COUNT(*) INTO total_acomp_dia
+    FROM visitas
+    WHERE data = NEW.data AND tipo = 'Acompanhante - Dia';
+
+    IF total_acomp_dia >= 1 THEN
+      RAISE EXCEPTION 'LIMITE_ACOMPANHANTE_DIA_EXCEDIDO: O dia % já possui um acompanhante de dia (08h às 20h).', NEW.data;
+    END IF;
+
+  ELSIF NEW.tipo = 'Acompanhante - Noite' THEN
+    SELECT COUNT(*) INTO total_acomp_noite
+    FROM visitas
+    WHERE data = NEW.data AND tipo = 'Acompanhante - Noite';
+
+    IF total_acomp_noite >= 1 THEN
+      RAISE EXCEPTION 'LIMITE_ACOMPANHANTE_NOITE_EXCEDIDO: O dia % já possui um acompanhante de noite (20h às 08h).', NEW.data;
+    END IF;
   END IF;
 
   RETURN NEW;

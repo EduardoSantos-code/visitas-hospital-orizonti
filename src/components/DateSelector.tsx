@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Lock, CheckCircle2, AlertCircle } from "lucide-react";
+import { Calendar as CalendarIcon, Lock } from "lucide-react";
+import { ResumoDiaInfo } from "@/lib/types";
 
 interface DateSelectorProps {
   selectedDate: string; // YYYY-MM-DD
   onSelectDate: (date: string) => void;
-  resumoDias: Record<string, { count: number; isFull: boolean }>;
+  resumoDias: Record<string, ResumoDiaInfo>;
 }
 
 export function DateSelector({ selectedDate, onSelectDate, resumoDias }: DateSelectorProps) {
@@ -98,7 +99,12 @@ export function DateSelector({ selectedDate, onSelectDate, resumoDias }: DateSel
       <div className="flex space-x-2 overflow-x-auto pb-1.5 pt-1 no-scrollbar scroll-smooth">
         {days.map((day) => {
           const isSelected = selectedDate === day.dateStr;
-          const info = resumoDias[day.dateStr] || { count: 0, isFull: false };
+          const info: ResumoDiaInfo = resumoDias[day.dateStr] || {
+            countVisitas: 0,
+            hasAcompDia: false,
+            hasAcompNoite: false,
+            isFull: false,
+          };
           const isFull = info.isFull;
 
           return (
@@ -148,11 +154,13 @@ export function DateSelector({ selectedDate, onSelectDate, resumoDias }: DateSel
                     : "bg-teal-700/60 text-white"
                   : isFull
                   ? "bg-rose-200 text-rose-800"
-                  : info.count === 0
+                  : info.countVisitas === 0 && !info.hasAcompDia && !info.hasAcompNoite
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
                   : "bg-slate-100 text-slate-600"
               }`}>
-                {isFull ? "4 / 4" : `${info.count} / 4`}
+                {isFull
+                  ? "Lotado"
+                  : `${info.countVisitas}/4 vis.`}
               </span>
             </button>
           );

@@ -1,32 +1,23 @@
 "use client";
 
 import React, { useState } from "react";
-import { Visita } from "@/lib/types";
-import { VISITING_SLOTS } from "@/lib/constants";
-import { X, Clock, Calendar, User, Phone, AlertCircle, Loader2, Save } from "lucide-react";
+import { Visita, TipoPresenca } from "@/lib/types";
+import { X, Calendar, User, Phone, AlertCircle, Loader2, Save, UserCheck, HeartHandshake, Edit3 } from "lucide-react";
 
 interface EditVisitModalProps {
   visita: Visita;
   visitasDoDia: Visita[];
   onClose: () => void;
-  onSave: (id: string, updates: { horario?: string; data?: string; nome?: string; telefone?: string }) => Promise<void>;
+  onSave: (id: string, updates: { tipo?: TipoPresenca; data?: string; nome?: string; telefone?: string }) => Promise<void>;
 }
 
-export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVisitModalProps) {
+export function EditVisitModal({ visita, onClose, onSave }: EditVisitModalProps) {
   const [nome, setNome] = useState(visita.nome);
   const [telefone, setTelefone] = useState(visita.telefone);
-  const [horario, setHorario] = useState(visita.horario);
+  const [tipo, setTipo] = useState<TipoPresenca>(visita.tipo || "Visita");
   const [data, setData] = useState(visita.data);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Mapear slots ocupados neste dia (exceto o do próprio visitante)
-  const ocupadosOutrosMap = new Map<string, Visita>();
-  visitasDoDia.forEach((v) => {
-    if (v.id !== visita.id) {
-      ocupadosOutrosMap.set(v.horario, v);
-    }
-  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,11 +29,11 @@ export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVi
         nome: nome.trim(),
         telefone: telefone.trim(),
         data,
-        horario,
+        tipo,
       });
       onClose();
     } catch (err: any) {
-      setError(err.message || "Erro ao salvar alterações da visita.");
+      setError(err.message || "Erro ao salvar alterações do agendamento.");
     } finally {
       setIsSubmitting(false);
     }
@@ -59,12 +50,12 @@ export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVi
         </button>
 
         <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-          <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold">
-            <Clock className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+            <Edit3 className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-slate-800 text-base">Reagendar / Editar Visita</h3>
-            <p className="text-xs text-slate-500">Altere o horário, data ou informações do visitante</p>
+            <h3 className="font-bold text-slate-800 text-base">Editar Agendamento</h3>
+            <p className="text-xs text-slate-500">Altere a modalidade, data ou dados da pessoa</p>
           </div>
         </div>
 
@@ -76,9 +67,52 @@ export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVi
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Tipo de Presença */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Modalidade</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTipo("Visita")}
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-bold transition-all ${
+                  tipo === "Visita"
+                    ? "bg-teal-600 text-white border-teal-700 shadow-xs"
+                    : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Visita</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTipo("Acompanhante - Dia")}
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-bold transition-all ${
+                  tipo === "Acompanhante - Dia"
+                    ? "bg-amber-600 text-white border-amber-700 shadow-xs"
+                    : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+                }`}
+              >
+                <span>Acomp. Dia</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTipo("Acompanhante - Noite")}
+                className={`p-2 rounded-xl border flex flex-col items-center justify-center gap-1 text-[11px] font-bold transition-all ${
+                  tipo === "Acompanhante - Noite"
+                    ? "bg-indigo-600 text-white border-indigo-700 shadow-xs"
+                    : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+                }`}
+              >
+                <span>Acomp. Noite</span>
+              </button>
+            </div>
+          </div>
+
           {/* Nome */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Nome do Visitante</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Nome Completo</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                 <User className="w-4 h-4" />
@@ -112,7 +146,7 @@ export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVi
 
           {/* Data */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Data da Visita</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Data</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                 <Calendar className="w-4 h-4" />
@@ -124,37 +158,6 @@ export function EditVisitModal({ visita, visitasDoDia, onClose, onSave }: EditVi
                 onChange={(e) => setData(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
-            </div>
-          </div>
-
-          {/* Seleção do Novo Horário */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Novo Horário de Visita</label>
-            <div className="grid grid-cols-3 gap-2 pt-1">
-              {VISITING_SLOTS.map((slot) => {
-                const ocupadoPor = ocupadosOutrosMap.get(slot);
-                const isOccupied = Boolean(ocupadoPor);
-                const isSelected = horario === slot;
-
-                return (
-                  <button
-                    key={slot}
-                    type="button"
-                    disabled={isOccupied}
-                    onClick={() => setHorario(slot)}
-                    className={`p-2 rounded-xl border text-xs font-bold transition-all ${
-                      isOccupied
-                        ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
-                        : isSelected
-                        ? "bg-teal-600 text-white border-teal-700 shadow-sm"
-                        : "bg-white hover:bg-teal-50 border-slate-200 text-slate-700"
-                    }`}
-                  >
-                    {slot}
-                    {isOccupied && <span className="block text-[8px] font-normal text-slate-400">Ocupado</span>}
-                  </button>
-                );
-              })}
             </div>
           </div>
 

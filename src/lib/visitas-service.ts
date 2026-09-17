@@ -1,5 +1,4 @@
-import { Visita, AgendamentoRequest } from "./types";
-import { MAX_VISITS_PER_DAY, VISITING_SLOTS } from "./constants";
+import { Visita, AgendamentoRequest, TipoPresenca, ResumoDiaInfo } from "./types";
 import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 
 // Mock store para ambiente local quando Supabase não estiver conectado
@@ -9,7 +8,7 @@ let mockVisitasStore: Visita[] = [
     nome: "Maria Silva",
     telefone: "(31) 99876-5432",
     data: new Date().toISOString().split("T")[0],
-    horario: "11:00",
+    tipo: "Visita",
     created_at: new Date().toISOString(),
   },
   {
@@ -17,7 +16,15 @@ let mockVisitasStore: Visita[] = [
     nome: "Carlos Eduardo",
     telefone: "(31) 98765-4321",
     data: new Date().toISOString().split("T")[0],
-    horario: "15:00",
+    tipo: "Acompanhante - Dia",
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: "demo-3",
+    nome: "Fernanda Costa",
+    telefone: "(31) 97654-3210",
+    data: new Date().toISOString().split("T")[0],
+    tipo: "Acompanhante - Noite",
     created_at: new Date().toISOString(),
   },
 ];
@@ -28,57 +35,90 @@ export async function getVisitasPorData(data: string): Promise<Visita[]> {
       .from("visitas")
       .select("*")
       .eq("data", data)
-      .order("horario", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (error) {
       console.error("Erro ao buscar visitas no Supabase:", error);
       throw new Error("Falha ao buscar visitas do banco de dados.");
     }
-    return visitas as Visita[];
+    return (visitas || []).map((v) => ({
+      ...v,
+      tipo: (v.tipo as TipoPresenca) || "Visita",
+    })) as Visita[];
   }
 
   // Fallback Local
   return mockVisitasStore.filter((v) => v.data === data);
 }
 
-export async function getResumoDias(datas: string[]): Promise<Record<string, { count: number; isFull: boolean }>> {
+export async function getResumoDias(datas: string[]): Promise<Record<string, ResumoDiaInfo>> {
   if (isSupabaseConfigured && supabaseAdmin) {
-    const { data: visitas, error } = await supabaseAdmin
+    let { data: visitas, error } = await supabaseAdmin
       .from("visitas")
-      .select("data, horario")
+      .select("data, tipo")
       .in("data", datas);
+
+    if (error && (error.code === "42703" || error.message?.includes("tipo"))) {
+      // Fallback gracioso se a migracao da coluna tipo no Supabase ainda nao tiver sido rodada pelo usuario
+      const { data: fallbackVisitas, error: fallbackErr } = await supabaseAdmin
+        .from("visitas")
+        .select("data")
+        .in("data", datas);
+
+      if (!fallbackErr) {
+        visitas = (fallbackVisitas || []).map((v: any) => ({ ...v, tipo: "Visita" }));
+        error = null;
+      }
+    }
 
     if (error) {
       console.error("Erro ao buscar resumo no Supabase:", error);
       throw new Error("Falha ao buscar resumo de visitas.");
     }
 
-    const mapa: Record<string, number> = {};
-    datas.forEach((d) => (mapa[d] = 0));
-
-    (visitas || []).forEach((v: { data: string }) => {
-      mapa[v.data] = (mapa[v.data] || 0) + 1;
+    const resultado: Record<string, ResumoDiaInfo> = {};
+    datas.forEach((d) => {
+      resultado[d] = {
+        countVisitas: 0,
+        hasAcompDia: false,
+        hasAcompNoite: false,
+        isFull: false,
+      };
     });
 
-    const resultado: Record<string, { count: number; isFull: boolean }> = {};
+    (visitas || []).forEach((v: { data: string; tipo: string }) => {
+      if (resultado[v.data]) {
+        if (v.tipo === "Visita") {
+          resultado[v.data].countVisitas += 1;
+        } else if (v.tipo === "Acompanhante - Dia") {
+          resultado[v.data].hasAcompDia = true;
+        } else if (v.tipo === "Acompanhante - Noite") {
+          resultado[v.data].hasAcompNoite = true;
+        }
+      }
+    });
+
     datas.forEach((d) => {
-      const count = mapa[d] || 0;
-      resultado[d] = {
-        count,
-        isFull: count >= MAX_VISITS_PER_DAY,
-      };
+      const item = resultado[d];
+      item.isFull = item.countVisitas >= 4 && item.hasAcompDia && item.hasAcompNoite;
     });
 
     return resultado;
   }
 
   // Fallback Local
-  const resultado: Record<string, { count: number; isFull: boolean }> = {};
+  const resultado: Record<string, ResumoDiaInfo> = {};
   datas.forEach((d) => {
-    const count = mockVisitasStore.filter((v) => v.data === d).length;
+    const doDia = mockVisitasStore.filter((v) => v.data === d);
+    const countVisitas = doDia.filter((v) => v.tipo === "Visita").length;
+    const hasAcompDia = doDia.some((v) => v.tipo === "Acompanhante - Dia");
+    const hasAcompNoite = doDia.some((v) => v.tipo === "Acompanhante - Noite");
+
     resultado[d] = {
-      count,
-      isFull: count >= MAX_VISITS_PER_DAY,
+      countVisitas,
+      hasAcompDia,
+      hasAcompNoite,
+      isFull: countVisitas >= 4 && hasAcompDia && hasAcompNoite,
     };
   });
 
@@ -86,7 +126,7 @@ export async function getResumoDias(datas: string[]): Promise<Record<string, { c
 }
 
 export async function criarAgendamento(req: AgendamentoRequest): Promise<Visita> {
-  const { nome, telefone, data, horario } = req;
+  const { nome, telefone, data, tipo = "Visita", horario } = req;
 
   // 1. Validações básicas de formato
   if (!nome || nome.trim().length < 3) {
@@ -101,40 +141,44 @@ export async function criarAgendamento(req: AgendamentoRequest): Promise<Visita>
     throw new Error("Data inválida.");
   }
 
-  if (!VISITING_SLOTS.includes(horario as any)) {
-    throw new Error("Horário de visita fora do período permitido (11h às 20h).");
-  }
+  const tipoFinal: TipoPresenca =
+    tipo === "Acompanhante - Dia"
+      ? "Acompanhante - Dia"
+      : tipo === "Acompanhante - Noite"
+      ? "Acompanhante - Noite"
+      : "Visita";
 
   // 2. Validação Backend no Supabase / PostgreSQL
   if (isSupabaseConfigured && supabaseAdmin) {
-    const { count, error: countErr } = await supabaseAdmin
-      .from("visitas")
-      .select("id", { count: "exact", head: true })
-      .eq("data", data);
+    if (tipoFinal === "Visita") {
+      const { count, error: countErr } = await supabaseAdmin
+        .from("visitas")
+        .select("id", { count: "exact", head: true })
+        .eq("data", data)
+        .eq("tipo", "Visita");
 
-    if (countErr) {
-      console.error("Erro na checagem de limite no Supabase:", countErr);
-      throw new Error("Erro ao validar disponibilidade de vagas.");
-    }
+      if (countErr) {
+        throw new Error("Erro ao validar limite de visitas.");
+      }
+      if ((count || 0) >= 4) {
+        throw new Error("Limite de visitas atingido: O dia selecionado já possui 4 visitas confirmadas.");
+      }
+    } else {
+      const { data: acompExistente, error: acompErr } = await supabaseAdmin
+        .from("visitas")
+        .select("id")
+        .eq("data", data)
+        .eq("tipo", tipoFinal)
+        .maybeSingle();
 
-    if ((count || 0) >= MAX_VISITS_PER_DAY) {
-      throw new Error("Limite atingido: O dia selecionado já possui 4 visitas confirmadas.");
-    }
-
-    const { data: slotExistente, error: slotErr } = await supabaseAdmin
-      .from("visitas")
-      .select("id")
-      .eq("data", data)
-      .eq("horario", horario)
-      .maybeSingle();
-
-    if (slotErr) {
-      console.error("Erro na checagem de slot no Supabase:", slotErr);
-      throw new Error("Erro ao verificar horário.");
-    }
-
-    if (slotExistente) {
-      throw new Error(`O horário das ${horario} já foi reservado por outro visitante neste dia.`);
+      if (acompErr) {
+        throw new Error("Erro ao validar disponibilidade de acompanhante.");
+      }
+      if (acompExistente) {
+        throw new Error(
+          `A vaga de ${tipoFinal === "Acompanhante - Dia" ? "Acompanhante de Dia (08h-20h)" : "Acompanhante de Noite (20h-08h)"} já foi preenchida nesta data.`
+        );
+      }
     }
 
     const { data: novaVisita, error: insertErr } = await supabaseAdmin
@@ -143,34 +187,43 @@ export async function criarAgendamento(req: AgendamentoRequest): Promise<Visita>
         nome: nome.trim(),
         telefone: telefone.trim(),
         data,
-        horario,
+        tipo: tipoFinal,
+        ...(horario ? { horario } : {}),
       })
       .select()
       .single();
 
     if (insertErr) {
-      console.error("Erro ao inserir visita no Supabase:", insertErr);
-      if (insertErr.code === "23505" || insertErr.message?.includes("uq_visita_data_horario")) {
-        throw new Error(`O horário das ${horario} já foi reservado por outro visitante.`);
+      console.error("Erro ao inserir agendamento no Supabase:", insertErr);
+      if (insertErr.message?.includes("LIMITE_VISITAS_EXCEDIDO")) {
+        throw new Error("O limite máximo de 4 visitas simultâneas por dia foi atingido.");
       }
-      if (insertErr.message?.includes("LIMITE_EXCEDIDO")) {
-        throw new Error("O limite máximo de 4 visitas por dia foi atingido.");
+      if (insertErr.message?.includes("LIMITE_ACOMPANHANTE_DIA_EXCEDIDO")) {
+        throw new Error("A vaga de acompanhante de dia já está ocupada.");
+      }
+      if (insertErr.message?.includes("LIMITE_ACOMPANHANTE_NOITE_EXCEDIDO")) {
+        throw new Error("A vaga de acompanhante de noite já está ocupada.");
       }
       throw new Error("Falha ao salvar agendamento no banco de dados.");
     }
 
-    return novaVisita as Visita;
+    return { ...novaVisita, tipo: novaVisita.tipo || tipoFinal } as Visita;
   }
 
   // 3. Fallback Local
   const visitasDoDia = mockVisitasStore.filter((v) => v.data === data);
-  if (visitasDoDia.length >= MAX_VISITS_PER_DAY) {
-    throw new Error("Limite atingido: O dia selecionado já possui 4 visitas confirmadas.");
-  }
-
-  const slotOcupado = visitasDoDia.some((v) => v.horario === horario);
-  if (slotOcupado) {
-    throw new Error(`O horário das ${horario} já foi reservado por outro visitante neste dia.`);
+  if (tipoFinal === "Visita") {
+    const countVisitas = visitasDoDia.filter((v) => v.tipo === "Visita").length;
+    if (countVisitas >= 4) {
+      throw new Error("Limite de visitas atingido: O dia selecionado já possui 4 visitas confirmadas.");
+    }
+  } else {
+    const jaExisteAcomp = visitasDoDia.some((v) => v.tipo === tipoFinal);
+    if (jaExisteAcomp) {
+      throw new Error(
+        `A vaga de ${tipoFinal === "Acompanhante - Dia" ? "Acompanhante de Dia (08h-20h)" : "Acompanhante de Noite (20h-08h)"} já está preenchida nesta data.`
+      );
+    }
   }
 
   const novaVisita: Visita = {
@@ -178,7 +231,8 @@ export async function criarAgendamento(req: AgendamentoRequest): Promise<Visita>
     nome: nome.trim(),
     telefone: telefone.trim(),
     data,
-    horario,
+    tipo: tipoFinal,
+    ...(horario ? { horario } : {}),
     created_at: new Date().toISOString(),
   };
 
@@ -211,20 +265,15 @@ export async function excluirVisita(id: string): Promise<boolean> {
 
 export async function atualizarVisita(
   id: string,
-  updates: { nome?: string; telefone?: string; data?: string; horario?: string }
+  updates: { nome?: string; telefone?: string; data?: string; tipo?: TipoPresenca; horario?: string }
 ): Promise<Visita> {
   if (!id) {
-    throw new Error("ID da visita não informado.");
+    throw new Error("ID do agendamento não informado.");
   }
 
-  const { nome, telefone, data, horario } = updates;
-
-  if (horario && !VISITING_SLOTS.includes(horario as any)) {
-    throw new Error("Horário de visita fora do período permitido (11h às 20h).");
-  }
+  const { nome, telefone, data, tipo, horario } = updates;
 
   if (isSupabaseConfigured && supabaseAdmin) {
-    // Buscar visita atual para comparar se a data ou horário mudou
     const { data: visitaAtual, error: getErr } = await supabaseAdmin
       .from("visitas")
       .select("*")
@@ -232,54 +281,46 @@ export async function atualizarVisita(
       .single();
 
     if (getErr || !visitaAtual) {
-      throw new Error("Visita não encontrada.");
+      throw new Error("Agendamento não encontrado.");
     }
 
     const novaData = data || visitaAtual.data;
-    const novoHorario = horario || visitaAtual.horario;
+    const novoTipo = tipo || visitaAtual.tipo;
 
-    // Se o horário ou data mudaram, validar colisão
-    if (novaData !== visitaAtual.data || novoHorario !== visitaAtual.horario) {
-      // 1. Checar se o novo slot já está ocupado por OUTRA visita
-      const { data: slotOcupado, error: slotErr } = await supabaseAdmin
-        .from("visitas")
-        .select("id")
-        .eq("data", novaData)
-        .eq("horario", novoHorario)
-        .neq("id", id)
-        .maybeSingle();
-
-      if (slotErr) {
-        throw new Error("Erro ao verificar disponibilidade do novo horário.");
-      }
-
-      if (slotOcupado) {
-        throw new Error(`O horário das ${novoHorario} no dia ${novaData} já está ocupado por outro visitante.`);
-      }
-
-      // 2. Se a data mudou, checar limite de 4 visitas na nova data
-      if (novaData !== visitaAtual.data) {
-        const { count, error: countErr } = await supabaseAdmin
+    // Se o tipo ou a data mudaram, checar colisão da nova modalidade
+    if (novaData !== visitaAtual.data || novoTipo !== visitaAtual.tipo) {
+      if (novoTipo === "Visita") {
+        const { count } = await supabaseAdmin
           .from("visitas")
           .select("id", { count: "exact", head: true })
-          .eq("data", novaData);
+          .eq("data", novaData)
+          .eq("tipo", "Visita")
+          .neq("id", id);
 
-        if (countErr) {
-          throw new Error("Erro ao checar capacidade da nova data.");
+        if ((count || 0) >= 4) {
+          throw new Error(`A data (${novaData}) já atingiu o limite de 4 visitas.`);
         }
+      } else {
+        const { data: acompOcupado } = await supabaseAdmin
+          .from("visitas")
+          .select("id")
+          .eq("data", novaData)
+          .eq("tipo", novoTipo)
+          .neq("id", id)
+          .maybeSingle();
 
-        if ((count || 0) >= MAX_VISITS_PER_DAY) {
-          throw new Error(`A nova data (${novaData}) já atingiu o limite máximo de 4 visitas.`);
+        if (acompOcupado) {
+          throw new Error(`A vaga de ${novoTipo} na data ${novaData} já está ocupada por outro acompanhante.`);
         }
       }
     }
 
-    // Executar update
     const payload: any = {};
     if (nome) payload.nome = nome.trim();
     if (telefone) payload.telefone = telefone.trim();
     if (data) payload.data = data;
-    if (horario) payload.horario = horario;
+    if (tipo) payload.tipo = tipo;
+    if (horario !== undefined) payload.horario = horario;
 
     const { data: visitaAtualizada, error: updateErr } = await supabaseAdmin
       .from("visitas")
@@ -289,34 +330,32 @@ export async function atualizarVisita(
       .single();
 
     if (updateErr) {
-      console.error("Erro ao atualizar visita no Supabase:", updateErr);
-      throw new Error("Falha ao atualizar dados da visita.");
+      console.error("Erro ao atualizar no Supabase:", updateErr);
+      throw new Error("Falha ao atualizar agendamento.");
     }
 
-    return visitaAtualizada as Visita;
+    return { ...visitaAtualizada, tipo: visitaAtualizada.tipo || "Visita" } as Visita;
   }
 
   // Fallback Local
   const visita = mockVisitasStore.find((v) => v.id === id);
   if (!visita) {
-    throw new Error("Visita não encontrada.");
+    throw new Error("Agendamento não encontrado.");
   }
 
   const novaData = data || visita.data;
-  const novoHorario = horario || visita.horario;
+  const novoTipo = tipo || visita.tipo;
 
-  if (novaData !== visita.data || novoHorario !== visita.horario) {
-    const slotOcupado = mockVisitasStore.some(
-      (v) => v.id !== id && v.data === novaData && v.horario === novoHorario
-    );
-    if (slotOcupado) {
-      throw new Error(`O horário das ${novoHorario} no dia ${novaData} já está ocupado por outro visitante.`);
-    }
-
-    if (novaData !== visita.data) {
-      const count = mockVisitasStore.filter((v) => v.data === novaData).length;
-      if (count >= MAX_VISITS_PER_DAY) {
-        throw new Error(`A nova data (${novaData}) já atingiu o limite máximo de 4 visitas.`);
+  if (novaData !== visita.data || novoTipo !== visita.tipo) {
+    if (novoTipo === "Visita") {
+      const count = mockVisitasStore.filter((v) => v.id !== id && v.data === novaData && v.tipo === "Visita").length;
+      if (count >= 4) {
+        throw new Error(`A data (${novaData}) já atingiu o limite de 4 visitas.`);
+      }
+    } else {
+      const acompOcupado = mockVisitasStore.some((v) => v.id !== id && v.data === novaData && v.tipo === novoTipo);
+      if (acompOcupado) {
+        throw new Error(`A vaga de ${novoTipo} na data ${novaData} já está ocupada por outro acompanhante.`);
       }
     }
   }
@@ -324,7 +363,8 @@ export async function atualizarVisita(
   if (nome) visita.nome = nome.trim();
   if (telefone) visita.telefone = telefone.trim();
   if (data) visita.data = data;
-  if (horario) visita.horario = horario;
+  if (tipo) visita.tipo = tipo;
+  if (horario !== undefined) visita.horario = horario;
 
   return { ...visita };
 }

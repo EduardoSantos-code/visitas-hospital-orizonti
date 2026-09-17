@@ -7,18 +7,17 @@ import { DayDetails } from "@/components/DayDetails";
 import { BookingForm } from "@/components/BookingForm";
 import { SuccessModal } from "@/components/SuccessModal";
 import { AdminAuthModal } from "@/components/AdminAuthModal";
-import { Visita } from "@/lib/types";
+import { Visita, TipoPresenca } from "@/lib/types";
 import { HOSPITAL_NAME, HOSPITAL_LOCATION } from "@/lib/constants";
-import { Heart, HeartHandshake, ShieldAlert, Sparkles, RefreshCw } from "lucide-react";
+import { Heart, HeartHandshake, ShieldAlert } from "lucide-react";
 
 export default function Home() {
   const getTodayStr = () => new Date().toISOString().split("T")[0];
 
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
   const [visitas, setVisitas] = useState<Visita[]>([]);
-  const [resumoDias, setResumoDias] = useState<Record<string, { count: number; isFull: boolean }>>({});
+  const [resumoDias, setResumoDias] = useState<Record<string, any>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -30,7 +29,7 @@ export default function Home() {
   const [createdBooking, setCreatedBooking] = useState<{
     nome: string;
     data: string;
-    horario: string;
+    tipo: TipoPresenca;
   } | null>(null);
 
   // Verificar se já autenticou como admin no sessionStorage
@@ -75,20 +74,13 @@ export default function Home() {
 
   useEffect(() => {
     fetchVisitaDados(selectedDate);
-    setSelectedSlot(null);
   }, [selectedDate, fetchVisitaDados]);
 
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
   };
 
-  const handleSelectSlot = (slot: string) => {
-    setSelectedSlot(slot);
-  };
-
-  const handleBookingSubmit = async (formData: { nome: string; telefone: string }) => {
-    if (!selectedSlot) return;
-
+  const handleBookingSubmit = async (formData: { nome: string; telefone: string; tipo: TipoPresenca }) => {
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/visitas", {
@@ -98,7 +90,7 @@ export default function Home() {
           nome: formData.nome,
           telefone: formData.telefone,
           data: selectedDate,
-          horario: selectedSlot,
+          tipo: formData.tipo,
         }),
       });
 
@@ -112,11 +104,10 @@ export default function Home() {
       setCreatedBooking({
         nome: formData.nome,
         data: selectedDate,
-        horario: selectedSlot,
+        tipo: formData.tipo,
       });
 
       await fetchVisitaDados(selectedDate);
-      setSelectedSlot(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -142,7 +133,7 @@ export default function Home() {
 
   const handleUpdateVisit = async (
     id: string,
-    updates: { horario?: string; data?: string; nome?: string; telefone?: string }
+    updates: { tipo?: TipoPresenca; data?: string; nome?: string; telefone?: string }
   ) => {
     const res = await fetch("/api/visitas", {
       method: "PATCH",
@@ -152,7 +143,7 @@ export default function Home() {
 
     const data = await res.json();
     if (!res.ok || !data.success) {
-      throw new Error(data.error || "Erro ao atualizar visita.");
+      throw new Error(data.error || "Erro ao atualizar agendamento.");
     }
 
     await fetchVisitaDados(selectedDate);
@@ -169,7 +160,10 @@ export default function Home() {
     sessionStorage.removeItem("is_admin_mode");
   };
 
-  const isDayFull = visitas.length >= 4;
+  const countVisitas = visitas.filter((v) => v.tipo === "Visita").length;
+  const hasAcompDia = visitas.some((v) => v.tipo === "Acompanhante - Dia");
+  const hasAcompNoite = visitas.some((v) => v.tipo === "Acompanhante - Noite");
+  const isDayFull = countVisitas >= 4 && hasAcompDia && hasAcompNoite;
 
   return (
     <div className="w-full min-h-screen flex flex-col justify-between pb-10">
@@ -188,11 +182,13 @@ export default function Home() {
               <span>Espaço de Carinho e Apoio</span>
             </div>
             <h2 className="text-xl font-extrabold tracking-tight leading-snug">
-              Visitas ao Noel no {HOSPITAL_NAME}
+              Agenda ao Noel no {HOSPITAL_NAME}
             </h2>
             <p className="text-xs text-teal-100/90 leading-relaxed font-normal">
-              Agende seu horário com facilidade. Para garantir o conforto e descanso, permitimos{" "}
-              <strong className="text-white font-bold">no máximo 4 visitas por dia</strong>.
+              Agende sua presença com facilidade. Escolha a data para registrar uma das{" "}
+              <strong className="text-white font-bold">4 visitas simultâneas</strong> ou a vaga de acompanhante (
+              <strong className="text-white font-bold">Dia: 08h-20h</strong> ou{" "}
+              <strong className="text-white font-bold">Noite: 20h-08h</strong>).
             </p>
           </div>
 
@@ -204,7 +200,7 @@ export default function Home() {
           <div className="p-3 bg-amber-500 text-slate-950 font-bold rounded-2xl text-xs flex items-center justify-between shadow-md">
             <span className="flex items-center gap-1.5">
               <ShieldAlert className="w-4 h-4 text-slate-950 shrink-0" />
-              <span>Modo Gerenciamento Ativado (Você pode cancelar ou alterar horários)</span>
+              <span>Modo Gerenciamento Ativado (Você pode cancelar ou alterar agendamentos)</span>
             </span>
             <button
               onClick={handleLogoutAdmin}
@@ -229,8 +225,6 @@ export default function Home() {
           <DayDetails
             selectedDate={selectedDate}
             visitas={visitas}
-            selectedSlot={selectedSlot}
-            onSelectSlot={handleSelectSlot}
             isLoading={isLoading}
             isAdminMode={isAdminMode}
             onDeleteVisit={handleDeleteVisit}
@@ -243,7 +237,7 @@ export default function Home() {
           <section className="pt-2">
             <BookingForm
               selectedDate={selectedDate}
-              selectedSlot={selectedSlot}
+              visitasDoDia={visitas}
               onSubmit={handleBookingSubmit}
               isSubmitting={isSubmitting}
               isDayFull={isDayFull}
@@ -265,7 +259,7 @@ export default function Home() {
         <SuccessModal
           nome={createdBooking.nome}
           data={createdBooking.data}
-          horario={createdBooking.horario}
+          tipo={createdBooking.tipo}
           onClose={() => setCreatedBooking(null)}
         />
       )}
